@@ -1,0 +1,151 @@
+{
+  "info": {
+    "_postman_id": "c0a4e761-9c63-455b-bf42-90117fb8ea5c",
+    "name": "Coworking Microservices Workshop",
+    "description": "Postman Collection para el taller de microservicios FastAPI y Chaos Engineering (Catalog Service & Orders Service).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "catalog_url",
+      "value": "http://localhost:8001",
+      "type": "string"
+    },
+    {
+      "key": "orders_url",
+      "value": "http://localhost:8002",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Catalog Service",
+      "item": [
+        {
+          "name": "Health Check (Catalog)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{catalog_url}}/health",
+              "host": ["{{catalog_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List All Spaces",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{catalog_url}}/spaces",
+              "host": ["{{catalog_url}}"],
+              "path": ["spaces"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Space by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{catalog_url}}/spaces/1",
+              "host": ["{{catalog_url}}"],
+              "path": ["spaces", "1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Orders Service",
+      "item": [
+        {
+          "name": "Health Check (Orders)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{orders_url}}/health",
+              "host": ["{{orders_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List All Orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{orders_url}}/orders",
+              "host": ["{{orders_url}}"],
+              "path": ["orders"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order (Query Params)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{orders_url}}/orders?space_id=1&user_email=test@example.com&hours=2",
+              "host": ["{{orders_url}}"],
+              "path": ["orders"],
+              "query": [
+                {
+                  "key": "space_id",
+                  "value": "1"
+                },
+                {
+                  "key": "user_email",
+                  "value": "test@example.com"
+                },
+                {
+                  "key": "hours",
+                  "value": "2"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order (Contract Test)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{orders_url}}/orders?space_id=1&user_email=contract@test.com&hours=2",
+              "host": ["{{orders_url}}"],
+              "path": ["orders"],
+              "query": [
+                {
+                  "key": "space_id",
+                  "value": "1"
+                },
+                {
+                  "key": "user_email",
+                  "value": "contract@test.com"
+                },
+                {
+                  "key": "hours",
+                  "value": "2"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
