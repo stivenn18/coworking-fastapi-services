@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Taller 2: De Microservicios a Sistemas Distribuidos Inteligentes
+  Clase 3: Serverless - Migración Event-Driven (API Gateway + Lambdas + EventBridge + SQS)
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.11
+    Architectures:
+      - x86_64
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    Description: Entorno de despliegue (dev, prod)
+
+Resources:
+  # ============================================================================
+  # 1. EVENTBRIDGE EVENT BUS
+  # ============================================================================
+  CoworkingEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: coworking-events
+
+  # ============================================================================
+  # 2. SQS QUEUE: catalog-events
+  # ============================================================================
+  CatalogEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: catalog-events
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 86400
+
+  # Política para permitir a EventBridge enviar mensajes a la cola SQS
+  CatalogEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref CatalogEventsQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgeToSendMessages
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt CatalogEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt SpaceChangedRule.Arn
+
+  # ============================================================================
+  # 3. EVENTBRIDGE RULE: SpaceChanged -> SQS
+  # ============================================================================
+  SpaceChangedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: space-changed-rule
+      EventBusName: !Ref CoworkingEventBus
+      Description: Enruta los eventos SpaceChanged del catálogo hacia la cola SQS
+      EventPattern:
+        source:
+          - coworking.catalog
+        detail-type:
+          - SpaceChanged
+      Targets:
+        - Arn: !GetAtt CatalogEventsQueue.Arn
+          Id: CatalogEventsQueueTarget
+
+  # ============================================================================
+  # 4. LAMBDA 1: catalog-fn (LAB 6)
+  # ============================================================================
+  CatalogFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: catalog-fn
+      CodeUri: lambda-catalog/
+      Handler: handler.lambda_handler
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref CoworkingEventBus
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: !GetAtt CoworkingEventBus.Arn
+      Events:
+        GetSpaces:
+          Type: Api
+          Properties:
+            Path: /catalog/spaces
+            Method: get
+        GetSpaceById:
+          Type: Api
+          Properties:
+            Path: /catalog/spaces/{id}
+            Method: get
+        UpdateAvailabilityPut:
+          Type: Api
+          Properties:
+            Path: /catalog/spaces/{id}/availability
+            Method: put
+        UpdateAvailabilityPost:
+          Type: Api
+          Properties:
+            Path: /catalog/spaces/{id}/availability
+            Method: post
+
+  # ============================================================================
+  # 5. LAMBDA 2: consumer-fn (LAB 7)
+  # ============================================================================
+  ConsumerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: consumer-fn
+      CodeUri: lambda-consumer/
+      Handler: handler.lambda_handler
+      Environment:
+        Variables:
+          ORDERS_SERVICE_URL: http://orders-service:8002
+      Events:
+        SQSCatalogEvents:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt CatalogEventsQueue.Arn
+            BatchSize: 5
+
+Outputs:
+  CatalogApiUrl:
+    Description: URL del API Gateway para el catálogo Serverless
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/catalog/spaces"
+
+  EventBusArn:
+    Description: ARN del EventBus en EventBridge
+    Value: !GetAtt CoworkingEventBus.Arn
+
+  QueueUrl:
+    Description: URL de la cola SQS catalog-events
+    Value: !Ref CatalogEventsQueue
+
+  QueueArn:
+    Description: ARN de la cola SQS catalog-events
+    Value: !GetAtt CatalogEventsQueue.Arn

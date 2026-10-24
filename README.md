@@ -1,11 +1,12 @@
-# Coworking Microservices Workshop - FastAPI & Chaos Engineering
+# Coworking Services - De Microservicios a Sistemas Distribuidos Inteligentes
 
-Proyecto de microservicios con **FastAPI** y **Docker Compose** enfocado en integración HTTP y experimentación de resiliencia mediante **Chaos Engineering**.
+Proyecto completo que abarca la evolución desde una arquitectura de microservicios HTTP tradicionales con Docker y Chaos Engineering hasta una arquitectura híbrida **Serverless & Event-Driven** con AWS SAM, API Gateway, EventBridge, SQS y Lambdas.
 
 ---
 
 ## 🏗 Arquitectura del Sistema
 
+### Parte 1: Microservicios en Contenedores (Docker Compose)
 ```
   +-------------------------+              +-------------------------+
   |     catalog-service     | <--- HTTP ---|     orders-service      |
@@ -19,138 +20,145 @@ Proyecto de microservicios con **FastAPI** y **Docker Compose** enfocado en inte
                     (coworking_coworking-network)
 ```
 
+### Parte 2: Migración Serverless & Event-Driven
+```
+[ API Gateway ]  --> [ Lambda: catalog-fn ] --> [ EventBridge: SpaceChanged ]
+  (/catalog)                  |
+                              v
+                   [ SQS: catalog-events ]
+                              |
+                              v
+                   [ Lambda: consumer-fn ]
+                              |
+                              v (HTTP Notif / Sync)
+                   [ orders-service (FastAPI/ECS) ]
+```
+
 ---
 
 ## 📁 Estructura del Proyecto
 
 ```text
-coworking-workshop/
+coworking-fastapi-services/
 ├── README.md
-├── docker-compose.yml
-├── chaos-test.sh
-├── chaos-test.ps1
-├── chaos-report.md
+├── docker-compose.yml                     # Orquestación Parte 1
+├── template.yaml                          # Plantilla AWS SAM (Parte 2: Serverless)
 ├── architecture-diagram.png
-├── coworking.postman_collection.json
-├── catalog-service/
+├── chaos-report.md                        # Informe técnico de Chaos Engineering
+├── chaos-test.sh / chaos-test.ps1         # Scripts de prueba de caos (Lab 4)
+├── coworking.postman_collection.json      # Colección Postman completa
+│
+├── catalog-service/                       # Parte 1: Microservicio Catálogo original
 │   ├── main.py
 │   ├── requirements.txt
 │   └── Dockerfile
-└── orders-service/
-    ├── main.py
-    ├── requirements.txt
-    └── Dockerfile
+│
+├── orders-service/                        # Parte 1 & 2: Servicio de Órdenes (FastAPI)
+│   ├── main.py
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+├── lambda-catalog/                        # Parte 2 (Lab 6): Lambda catalog-service
+│   ├── handler.py
+│   └── requirements.txt
+│
+├── lambda-consumer/                       # Parte 2 (Lab 7): Lambda consumer de SQS
+│   ├── handler.py
+│   └── requirements.txt
+│
+├── test_serverless_event_flow.py          # Suite de validación Parte 2
+└── run_workshop_tests.py                  # Suite de validación Parte 1
 ```
 
 ---
 
-## 🚀 Guía de Inicio Rápido
+## 🚀 Parte 1: Guía de Inicio (Microservicios & Chaos)
 
-### Prerrequisitos
-- [Docker](https://www.docker.com/) y Docker Compose instalados.
-- Python 3.11+ (opcional para ejecución directa local).
-
----
-
-### LAB 1: Ejecución Local de `catalog-service`
-1. Entrar a la carpeta del catálogo e instalar dependencias:
-   ```bash
-   cd catalog-service
-   pip install -r requirements.txt
-   python main.py
-   ```
-2. En otra terminal, probar los endpoints:
-   ```bash
-   curl http://localhost:8001/health
-   curl http://localhost:8001/spaces
-   curl http://localhost:8001/spaces/1
-   ```
-
----
-
-### LAB 2 & 3: Orquestación con Docker Compose
-1. En la raíz del proyecto, construir y levantar ambos servicios:
-   ```bash
-   docker-compose up --build
-   ```
-2. Probar el flujo completo:
-   - **Ver espacios disponibles:**
-     ```bash
-     curl http://localhost:8001/spaces
-     ```
-   - **Crear una orden (orders-service consulta internamente a catalog-service):**
-     ```bash
-     curl -X POST "http://localhost:8002/orders?space_id=1&user_email=test@example.com&hours=2"
-     ```
-   - **Ver órdenes registradas:**
-     ```bash
-     curl http://localhost:8002/orders
-     ```
-
----
-
-### LAB 4: Chaos Engineering - Caída del Catálogo
-Para simular y verificar la respuesta ante la caída del servicio dependiente:
-
-**En Linux / Mac / Git Bash:**
+### Levantar con Docker Compose
 ```bash
-chmod +x chaos-test.sh
-./chaos-test.sh
+docker-compose up --build -d
 ```
 
-**En Windows (PowerShell):**
+### Probar los endpoints:
+```bash
+# Ver espacios disponibles
+curl http://localhost:8001/spaces
+
+# Crear una orden
+curl -X POST "http://localhost:8002/orders?space_id=1&user_email=test@example.com&hours=2"
+
+# Ver órdenes creadas
+curl http://localhost:8002/orders
+```
+
+### Chaos Engineering:
+- **En PowerShell:** `.\chaos-test.ps1`
+- **En Bash:** `./chaos-test.sh`
+
+---
+
+## ⚡ Parte 2: Arquitectura Serverless & Event-Driven (Labs 6 y 7)
+
+### Objetivo
+Migrar el `catalog-service` a **AWS Lambda con API Gateway**, publicar eventos en **EventBridge (`SpaceChanged`)** cuando cambie la disponibilidad de un espacio, enrutarlos a través de una cola **SQS (`catalog-events`)**, y procesarlos mediante una Lambda consumidora (`consumer-fn`) suscrita para sincronizar el estado en `orders-service`.
+
+### 1. Componentes Implementados
+
+1. **`lambda-catalog` (Lab 6):**
+   - Manejador de API Gateway para `/catalog/spaces` y `/catalog/spaces/{id}`.
+   - Endpoint `PUT /spaces/{id}/availability`: al modificar la disponibilidad de un espacio, publica un evento estructurado en EventBridge:
+     - `Source`: `coworking.catalog`
+     - `DetailType`: `SpaceChanged`
+     - `EventBusName`: `coworking-events`
+
+2. **Infraestructura con AWS SAM (`template.yaml`):**
+   - **`CoworkingEventBus`**: Bus personalizado de eventos.
+   - **`CatalogEventsQueue`**: Cola SQS con política de acceso para EventBridge.
+   - **`SpaceChangedRule`**: Regla de enrutamiento basada en patrones (`Source = coworking.catalog`, `DetailType = SpaceChanged`).
+   - **`CatalogFunction`**: Función Lambda asociada a API Gateway con permisos `events:PutEvents`.
+   - **`ConsumerFunction`**: Función Lambda activada por disparador de SQS (batch size: 5).
+
+3. **`lambda-consumer` (Lab 7):**
+   - Consume en lote los mensajes desde la cola SQS `catalog-events`.
+   - Extrae el payload original emitido por EventBridge.
+   - Notifica a `orders-service` a través del endpoint `/events/space-changed`.
+
+4. **Suscripción en `orders-service`:**
+   - Endpoint `POST /events/space-changed`: recibe la notificación de evento y actualiza en tiempo real la caché de disponibilidad de espacios (`SPACE_AVAILABILITY_CACHE`).
+   - Endpoint `GET /events`: permite auditar los eventos procesados.
+
+---
+
+### 2. Prueba Local Automatizada (Sin credenciales de AWS)
+
+Para verificar el ciclo completo de la Parte 2 localmente:
+
 ```powershell
-.\chaos-test.ps1
+wsl -e bash -c "source .venv/bin/activate && python3 test_serverless_event_flow.py"
 ```
 
-**Comportamiento observado:**
-1. Primera petición: `201 Created` / `200 OK` (catálogo arriba).
-2. Con catálogo detenido (`docker-compose stop catalog-service`): `503 Service Unavailable` con mensaje `"Catalog service unavailable"`.
-3. Tras reactivar (`docker-compose start catalog-service`): `201 Created` / `200 OK`.
+**Resultado:**
+- Simula llamadas a `catalog-fn` (`GET`, `PUT`).
+- Valida la emisión del evento `SpaceChanged`.
+- Enruta el mensaje a `consumer-fn`.
+- Comprueba que `orders-service` recibe el evento y actualiza el estado del espacio.
 
 ---
 
-### LAB 5: Chaos Engineering - Cambio de Contrato
-Para experimentar la ruptura de contrato:
-1. En `catalog-service/main.py`, modificar el campo `price_per_hour` por `hourly_rate`:
-   ```python
-   # Antes:
-   "price_per_hour": 15.0
-   # Después:
-   "hourly_rate": 15.0
-   ```
-2. Reconstruir el servicio:
-   ```bash
-   docker-compose up --build -d
-   ```
-3. Intentar crear una orden:
-   ```bash
-   curl -X POST "http://localhost:8002/orders?space_id=1&user_email=contract@test.com&hours=2"
-   ```
-4. **Resultado esperado:** Error `500 Internal Server Error` debido a que `orders-service` esperaba `space["price_per_hour"]`.
-5. Ver informe completo en [chaos-report.md](file:///c:/Users/stive/Downloads/coworking-fastapi-services/chaos-report.md).
+### 3. Despliegue en la Nube con AWS SAM CLI
 
----
-
-## 🛠 Comandos de Debugging Útiles
+Cuando desees desplegar en tu cuenta de AWS:
 
 ```bash
-# Ver logs en tiempo real
-docker-compose logs -f
+# 1. Instalar SAM CLI (si no lo tienes)
+pip install aws-sam-cli
 
-# Ver estado de los contenedores
-docker-compose ps
+# 2. Compilar la aplicación SAM
+sam build
 
-# Entrar al contenedor de orders-service
-docker-compose exec orders-service bash
+# 3. Desplegar de forma interactiva (primera vez)
+sam deploy --guided
 
-# Inspeccionar redes Docker
-docker network ls
-docker network inspect coworking_coworking-network
-
-# Probar conectividad interna entre contenedores
-docker-compose exec orders-service ping catalog-service
-
-# Reconstruir imágenes sin caché
-docker-compose build --no-cache
+# 4. Despliegues posteriores
+sam deploy
 ```

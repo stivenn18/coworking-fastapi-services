@@ -13,6 +13,10 @@ CATALOG_SERVICE_URL = os.getenv("CATALOG_SERVICE_URL", "http://catalog-service:8
 ORDERS: List[dict] = []
 order_counter = 1
 
+# Event subscription store (Parte 2: Event-Driven)
+RECEIVED_EVENTS: List[dict] = []
+SPACE_AVAILABILITY_CACHE: dict = {}
+
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "orders-service"}
@@ -20,6 +24,34 @@ def health_check():
 @app.get("/orders")
 def get_orders():
     return ORDERS
+
+@app.post("/events/space-changed", status_code=status.HTTP_200_OK)
+async def receive_space_event(request: Request):
+    """
+    Endpoint para recibir eventos propagados por consumer-fn desde SQS/EventBridge.
+    """
+    event_data = await request.json()
+    RECEIVED_EVENTS.append(event_data)
+    
+    payload = event_data.get("payload", {})
+    space_id = payload.get("space_id")
+    new_avail = payload.get("new_available")
+    if space_id is not None and new_avail is not None:
+        SPACE_AVAILABILITY_CACHE[space_id] = new_avail
+        
+    return {
+        "status": "received",
+        "total_events": len(RECEIVED_EVENTS),
+        "cached_spaces": SPACE_AVAILABILITY_CACHE
+    }
+
+@app.get("/events")
+def get_received_events():
+    return {
+        "total": len(RECEIVED_EVENTS),
+        "events": RECEIVED_EVENTS,
+        "availability_cache": SPACE_AVAILABILITY_CACHE
+    }
 
 def get_http_client():
     return httpx.AsyncClient(timeout=4.0)
