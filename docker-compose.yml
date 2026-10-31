@@ -1,4 +1,30 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: coworking_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - coworking-network
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:6.0
+    container_name: mongodb-atlas-mock
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - coworking-network
+    restart: unless-stopped
+
   catalog-service:
     build:
       context: ./catalog-service
@@ -19,8 +45,27 @@ services:
       - "8002:8002"
     environment:
       - CATALOG_SERVICE_URL=http://catalog-service:8001
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8003
+      - DATABASE_URL=postgresql+psycopg2://postgres:CoworkingSecure2026!@coworking-postgres-rds.cgpscm88mvbm.us-east-1.rds.amazonaws.com:5432/coworking_db
     depends_on:
       - catalog-service
+      - postgres
+    networks:
+      - coworking-network
+    restart: unless-stopped
+
+  analytics-service:
+    build:
+      context: ./analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics-service
+    ports:
+      - "8003:8003"
+    environment:
+      - MONGODB_URI=mongodb+srv://zukabarcenas_db_user:miCePLAc8643pLYh@cluster0.bcov6bc.mongodb.net/coworking_analytics?retryWrites=true&w=majority
+      - MONGODB_DATABASE=coworking_analytics
+    depends_on:
+      - mongo
     networks:
       - coworking-network
     restart: unless-stopped
@@ -28,3 +73,7 @@ services:
 networks:
   coworking-network:
     name: coworking_coworking-network
+
+volumes:
+  postgres_data:
+  mongo_data:

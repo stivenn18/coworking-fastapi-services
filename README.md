@@ -1,37 +1,35 @@
 # Coworking Services - De Microservicios a Sistemas Distribuidos Inteligentes
 
-Proyecto completo que abarca la evolución desde una arquitectura de microservicios HTTP tradicionales con Docker y Chaos Engineering hasta una arquitectura híbrida **Serverless & Event-Driven** con AWS SAM, API Gateway, EventBridge, SQS y Lambdas.
+Proyecto integral que abarca la evolución arquitectónica completa a través de 3 talleres:
+1. **Taller 1:** Microservicios con FastAPI, Docker Compose y Chaos Engineering.
+2. **Taller 2:** Migración Serverless y Event-Driven con AWS SAM, API Gateway, EventBridge, SQS y Lambdas.
+3. **Taller 3:** Bases de Datos en la Nube con PostgreSQL en AWS RDS (SQLAlchemy + Alembic) y MongoDB Atlas para Analytics.
 
 ---
 
-## 🏗 Arquitectura del Sistema
+## 🏗 Arquitectura Global del Sistema
 
-### Parte 1: Microservicios en Contenedores (Docker Compose)
 ```
-  +-------------------------+              +-------------------------+
-  |     catalog-service     | <--- HTTP ---|     orders-service      |
-  |        (FastAPI)        |              |        (FastAPI)        |
-  |       Puerto 8001       |              |       Puerto 8002       |
-  +-------------------------+              +-------------------------+
-               |                                        |
-               +-------------------+--------------------+
-                                   |
-                         [ Docker Network ]
-                    (coworking_coworking-network)
-```
-
-### Parte 2: Migración Serverless & Event-Driven
-```
-[ API Gateway ]  --> [ Lambda: catalog-fn ] --> [ EventBridge: SpaceChanged ]
-  (/catalog)                  |
-                              v
-                   [ SQS: catalog-events ]
-                              |
-                              v
-                   [ Lambda: consumer-fn ]
-                              |
-                              v (HTTP Notif / Sync)
-                   [ orders-service (FastAPI/ECS) ]
+                        [ Clientes / API ]
+                                │
+               ┌────────────────┴────────────────┐
+               │                                 │
+               ▼                                 ▼
+       [ catalog-service ]               [ orders-service ]
+     (FastAPI / AWS Lambda)                (FastAPI / ECS)
+               │                                 │
+               │ (EventBridge / SQS)             ├──────────────────────────┐
+               ▼                                 ▼                          ▼
+       [ consumer-fn ]                ┌─────────────────────┐    ┌────────────────────┐
+               │                      │   PostgreSQL RDS    │    │   analytics-svc    │
+               └─► [ Webhook Sync ]──►│  (órdenes, usuarios)│    │     (FastAPI)      │
+                                      └─────────────────────┘    └──────────┬─────────┘
+                                                                            │
+                                                                            ▼
+                                                                 ┌────────────────────┐
+                                                                 │   MongoDB Atlas    │
+                                                                 │  (métricas y logs) │
+                                                                 └────────────────────┘
 ```
 
 ---
@@ -41,124 +39,129 @@ Proyecto completo que abarca la evolución desde una arquitectura de microservic
 ```text
 coworking-fastapi-services/
 ├── README.md
-├── docker-compose.yml                     # Orquestación Parte 1
-├── template.yaml                          # Plantilla AWS SAM (Parte 2: Serverless)
+├── docker-compose.yml                     # Orquestación de servicios y BDs locales
+├── template.yaml                          # AWS SAM (Serverless: Lambdas + EventBridge + SQS)
 ├── architecture-diagram.png
 ├── chaos-report.md                        # Informe técnico de Chaos Engineering
 ├── chaos-test.sh / chaos-test.ps1         # Scripts de prueba de caos (Lab 4)
-├── coworking.postman_collection.json      # Colección Postman completa
+├── coworking.postman_collection.json      # Colección Postman de los 3 talleres
 │
-├── catalog-service/                       # Parte 1: Microservicio Catálogo original
+├── catalog-service/                       # Taller 1: Catálogo de espacios original
 │   ├── main.py
 │   ├── requirements.txt
 │   └── Dockerfile
 │
-├── orders-service/                        # Parte 1 & 2: Servicio de Órdenes (FastAPI)
-│   ├── main.py
-│   ├── requirements.txt
+├── orders-service/                        # Talleres 1, 2 y 3: Servicio de Órdenes
+│   ├── main.py                            # Endpoints + persistencia en PostgreSQL
+│   ├── database.py                        # Modelos SQLAlchemy + Connection Pooling
+│   ├── alembic.ini                        # Configuración de migraciones
+│   ├── alembic/                           # Entorno y versiones de migraciones
+│   ├── requirements.txt                   # Incluye sqlalchemy, alembic, psycopg2
 │   └── Dockerfile
 │
-├── lambda-catalog/                        # Parte 2 (Lab 6): Lambda catalog-service
+├── analytics-service/                     # Taller 3 (Lab 9): Servicio de Analytics
+│   ├── main.py                            # Endpoints de eventos y agregación
+│   ├── mongodb_client.py                  # Conexión MongoDB Atlas + Índices + Pipelines
+│   ├── requirements.txt                   # Incluye pymongo, fastapi
+│   └── Dockerfile
+│
+├── lambda-catalog/                        # Taller 2 (Lab 6): Lambda catalog-service
 │   ├── handler.py
 │   └── requirements.txt
 │
-├── lambda-consumer/                       # Parte 2 (Lab 7): Lambda consumer de SQS
+├── lambda-consumer/                       # Taller 2 (Lab 7): Lambda consumer de SQS
 │   ├── handler.py
 │   └── requirements.txt
 │
-├── test_serverless_event_flow.py          # Suite de validación Parte 2
-└── run_workshop_tests.py                  # Suite de validación Parte 1
+├── run_workshop3_tests.py                 # Suite de validación Taller 3 (BDs)
+├── test_serverless_event_flow.py          # Suite de validación Taller 2 (Serverless)
+└── run_workshop_tests.py                  # Suite de validación Taller 1 (Chaos)
 ```
 
 ---
 
-## 🚀 Parte 1: Guía de Inicio (Microservicios & Chaos)
+## 💾 Taller 3: Bases de Datos en la Nube (Labs 8 y 9)
 
-### Levantar con Docker Compose
+### Objetivo
+Reemplazar el almacenamiento volátil en memoria por bases de datos de producción:
+* **PostgreSQL (AWS RDS)**: Para datos relacionales estructurados y transaccionales (órdenes, usuarios) usando **SQLAlchemy ORM** y control de esquema con **Alembic**.
+* **MongoDB Atlas**: Para datos no estructurados y de alta ingesta (eventos de uso, analítica de ocupación, métricas y agregaciones).
+
+---
+
+### 1. LAB 8: PostgreSQL con SQLAlchemy + Alembic
+
+#### Componentes:
+* **`orders-service/database.py`**:
+  * Motor `create_engine` con Connection Pooling configurado (`pool_size=10`, `max_overflow=20`, `pool_pre_ping=True`, `pool_recycle=3600`).
+  * Modelo declarativo `OrderModel` con tabla `orders`, índices en `space_id` y `user_email`, y enum de estado (`OrderStatus: PENDING, CONFIRMED, CANCELLED`).
+  * Dependencia `get_db()` para inyección limpia de sesión por petición.
+* **Migraciones con Alembic**:
+  * `alembic.ini` y `alembic/env.py` configurados para autogeneración basada en `Base.metadata`.
+  * Migración inicial: `001_initial_schema.py`.
+
+#### Comandos de Migración:
+```bash
+cd orders-service
+# Aplicar migraciones pendientes
+alembic upgrade head
+
+# Revertir última migración si es necesario
+alembic downgrade -1
+```
+
+---
+
+### 2. LAB 9: MongoDB Atlas para Analytics
+
+#### Componentes:
+* **`analytics-service/mongodb_client.py`**:
+  * Cliente `MongoClient` configurado con Connection Pool (`maxPoolSize=50`, `minPoolSize=10`) y reintentos automáticos (`retryWrites=True`, `retryReads=True`).
+  * Creación declarativa de índices compuestos (`event_type`, `space_id`, `timestamp`).
+  * Pipelines de agregación (`$match`, `$group`, `$sort`) para calcular métricas de negocio:
+    * Total de reservas confirmadas.
+    * Ingresos totales generados.
+    * Total de horas de coworking contratadas.
+    * Ranking de espacios más rentables / demandados.
+* **`analytics-service/main.py`**:
+  * `POST /analytics/events`: Ingesta de eventos en tiempo real.
+  * `GET /analytics/summary`: Retorna el reporte agregado de analítica.
+  * `GET /health`: Estado del servicio y ping a MongoDB.
+
+---
+
+### 3. Ejecución Completa con Docker Compose
+
+Para levantar toda la arquitectura con PostgreSQL, MongoDB y los 3 microservicios:
+
 ```bash
 docker-compose up --build -d
 ```
 
-### Probar los endpoints:
+#### Pruebas de Endpoints:
 ```bash
-# Ver espacios disponibles
-curl http://localhost:8001/spaces
+# 1. Crear una orden (se persiste en PostgreSQL y envía evento a Analytics)
+curl -X POST "http://localhost:8002/orders?space_id=1&user_email=juan@test.com&hours=3"
 
-# Crear una orden
-curl -X POST "http://localhost:8002/orders?space_id=1&user_email=test@example.com&hours=2"
-
-# Ver órdenes creadas
+# 2. Consultar órdenes persistidas en PostgreSQL
 curl http://localhost:8002/orders
-```
 
-### Chaos Engineering:
-- **En PowerShell:** `.\chaos-test.ps1`
-- **En Bash:** `./chaos-test.sh`
+# 3. Consultar métricas y analíticas agregadas desde MongoDB
+curl http://localhost:8003/analytics/summary
+```
 
 ---
 
-## ⚡ Parte 2: Arquitectura Serverless & Event-Driven (Labs 6 y 7)
+### 4. Conexión a AWS RDS y MongoDB Atlas en la Nube
 
-### Objetivo
-Migrar el `catalog-service` a **AWS Lambda con API Gateway**, publicar eventos en **EventBridge (`SpaceChanged`)** cuando cambie la disponibilidad de un espacio, enrutarlos a través de una cola **SQS (`catalog-events`)**, y procesarlos mediante una Lambda consumidora (`consumer-fn`) suscrita para sincronizar el estado en `orders-service`.
-
-### 1. Componentes Implementados
-
-1. **`lambda-catalog` (Lab 6):**
-   - Manejador de API Gateway para `/catalog/spaces` y `/catalog/spaces/{id}`.
-   - Endpoint `PUT /spaces/{id}/availability`: al modificar la disponibilidad de un espacio, publica un evento estructurado en EventBridge:
-     - `Source`: `coworking.catalog`
-     - `DetailType`: `SpaceChanged`
-     - `EventBusName`: `coworking-events`
-
-2. **Infraestructura con AWS SAM (`template.yaml`):**
-   - **`CoworkingEventBus`**: Bus personalizado de eventos.
-   - **`CatalogEventsQueue`**: Cola SQS con política de acceso para EventBridge.
-   - **`SpaceChangedRule`**: Regla de enrutamiento basada en patrones (`Source = coworking.catalog`, `DetailType = SpaceChanged`).
-   - **`CatalogFunction`**: Función Lambda asociada a API Gateway con permisos `events:PutEvents`.
-   - **`ConsumerFunction`**: Función Lambda activada por disparador de SQS (batch size: 5).
-
-3. **`lambda-consumer` (Lab 7):**
-   - Consume en lote los mensajes desde la cola SQS `catalog-events`.
-   - Extrae el payload original emitido por EventBridge.
-   - Notifica a `orders-service` a través del endpoint `/events/space-changed`.
-
-4. **Suscripción en `orders-service`:**
-   - Endpoint `POST /events/space-changed`: recibe la notificación de evento y actualiza en tiempo real la caché de disponibilidad de espacios (`SPACE_AVAILABILITY_CACHE`).
-   - Endpoint `GET /events`: permite auditar los eventos procesados.
-
----
-
-### 2. Prueba Local Automatizada (Sin credenciales de AWS)
-
-Para verificar el ciclo completo de la Parte 2 localmente:
-
-```powershell
-wsl -e bash -c "source .venv/bin/activate && python3 test_serverless_event_flow.py"
-```
-
-**Resultado:**
-- Simula llamadas a `catalog-fn` (`GET`, `PUT`).
-- Valida la emisión del evento `SpaceChanged`.
-- Enruta el mensaje a `consumer-fn`.
-- Comprueba que `orders-service` recibe el evento y actualiza el estado del espacio.
-
----
-
-### 3. Despliegue en la Nube con AWS SAM CLI
-
-Cuando desees desplegar en tu cuenta de AWS:
-
-```bash
-# 1. Instalar SAM CLI (si no lo tienes)
-pip install aws-sam-cli
-
-# 2. Compilar la aplicación SAM
-sam build
-
-# 3. Desplegar de forma interactiva (primera vez)
-sam deploy --guided
-
-# 4. Despliegues posteriores
-sam deploy
-```
+Para conectar los servicios a tus instancias reales en la nube:
+1. **PostgreSQL en AWS RDS**:
+   Configura la variable `DATABASE_URL`:
+   ```bash
+   DATABASE_URL=postgresql://<usuario>:<password>@<endpoint-rds.amazonaws.com>:5432/<nombre_bd>
+   ```
+2. **MongoDB Atlas**:
+   Configura la variable `MONGODB_URI`:
+   ```bash
+   MONGODB_URI=mongodb+srv://<usuario>:<password>@<cluster.mongodb.net>/coworking_analytics?retryWrites=true&w=majority
+   ```

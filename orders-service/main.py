@@ -1,29 +1,57 @@
 import os
 from datetime import datetime
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi import FastAPI, HTTPException, Query, Request, Depends, status
+from sqlalchemy.orm import Session
 import httpx
 import uvicorn
 
-app = FastAPI(title="Orders Service", version="1.0.0")
+from database import engine, Base, get_db, OrderModel, OrderStatus
+
+# Crear tablas en caso de iniciar en desarrollo local o SQLite
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Orders Service", version="2.0.0")
 
 CATALOG_SERVICE_URL = os.getenv("CATALOG_SERVICE_URL", "http://catalog-service:8001")
-
-# Mock database of orders
-ORDERS: List[dict] = []
-order_counter = 1
+ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://analytics-service:8003")
 
 # Event subscription store (Parte 2: Event-Driven)
 RECEIVED_EVENTS: List[dict] = []
 SPACE_AVAILABILITY_CACHE: dict = {}
 
 @app.get("/health")
-def health_check():
-    return {"status": "ok", "service": "orders-service"}
+def health_check(db: Session = Depends(get_db)):
+    # Valida conectividad activa a PostgreSQL
+    try:
+        db.execute(Base.metadata.tables["orders"].select().limit(1))
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+        
+    return {
+        "status": "ok",
+        "service": "orders-service",
+        "database": db_status
+    }
 
 @app.get("/orders")
-def get_orders():
-    return ORDERS
+def get_orders(db: Session = Depends(get_db)):
+    orders = db.query(OrderModel).order_by(OrderModel.id.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "space_id": o.space_id,
+            "space_name": o.space_name,
+            "user_email": o.user_email,
+            "hours": o.hours,
+            "price_per_hour": o.price_per_hour,
+            "total_price": o.total_price,
+            "status": o.status.value if hasattr(o.status, "value") else str(o.status),
+            "created_at": o.created_at.isoformat() if isinstance(o.created_at, datetime) else str(o.created_at)
+        }
+        for o in orders
+    ]
 
 @app.post("/events/space-changed", status_code=status.HTTP_200_OK)
 async def receive_space_event(request: Request):
@@ -61,10 +89,9 @@ async def create_order(
     request: Request,
     space_id: Optional[int] = Query(None),
     user_email: Optional[str] = Query(None),
-    hours: Optional[int] = Query(None)
+    hours: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
 ):
-    global order_counter
-
     # Check if parameters were provided via JSON body instead of query params
     if space_id is None or user_email is None or hours is None:
         try:
@@ -112,25 +139,56 @@ async def create_order(
 
     space_data = response.json()
 
-    # The order calculation depends directly on the catalog contract: space["price_per_hour"]
-    # If the contract changes (e.g. to hourly_rate), this will raise a KeyError
+    # Validar contrato de precio
     price_per_hour = space_data["price_per_hour"]
     total_price = price_per_hour * hours
 
-    order = {
-        "id": order_counter,
-        "space_id": space_id,
-        "space_name": space_data.get("name", "Unknown"),
-        "user_email": user_email,
-        "hours": hours,
-        "price_per_hour": price_per_hour,
-        "total_price": total_price,
-        "created_at": datetime.utcnow().isoformat()
-    }
-    ORDERS.append(order)
-    order_counter += 1
+    # 1. Guardar orden en PostgreSQL
+    new_order = OrderModel(
+        space_id=space_id,
+        space_name=space_data.get("name", "Unknown"),
+        user_email=user_email,
+        hours=hours,
+        price_per_hour=price_per_hour,
+        total_price=total_price,
+        status=OrderStatus.CONFIRMED,
+        created_at=datetime.utcnow()
+    )
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
 
-    return order
+    # 2. Notificar asíncronamente a analytics-service (Taller 3 - MongoDB)
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post(
+                f"{ANALYTICS_SERVICE_URL}/analytics/events",
+                json={
+                    "event_type": "ORDER_CREATED",
+                    "order_id": new_order.id,
+                    "space_id": space_id,
+                    "space_name": new_order.space_name,
+                    "user_email": user_email,
+                    "hours": hours,
+                    "total_price": total_price,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+    except Exception as e:
+        # Falla tolerable: analytics no bloquea la orden transaccional
+        print(f"Warning: could not push event to analytics-service: {e}")
+
+    return {
+        "id": new_order.id,
+        "space_id": new_order.space_id,
+        "space_name": new_order.space_name,
+        "user_email": new_order.user_email,
+        "hours": new_order.hours,
+        "price_per_hour": new_order.price_per_hour,
+        "total_price": new_order.total_price,
+        "status": new_order.status.value,
+        "created_at": new_order.created_at.isoformat()
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8002)
