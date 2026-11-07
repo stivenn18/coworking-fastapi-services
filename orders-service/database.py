@@ -13,11 +13,15 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# URL de la base de datos (PostgreSQL RDS o local por defecto)
+# URL de la base de datos (PostgreSQL RDS configurado del Taller 3 por defecto)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/coworking_db"
+    "postgresql+psycopg2://postgres:CoworkingSecure2026!@coworking-postgres-rds.cgpscm88mvbm.us-east-1.rds.amazonaws.com:5432/coworking_db"
 )
+
+# Garantizar el uso del driver psycopg2 si viene como postgresql://
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # SQLite fallback para desarrollo o tests en caso de no tener PostgreSQL activo
 connect_args = {}
@@ -41,6 +45,19 @@ class OrderStatus(str, enum.Enum):
     PENDING = "PENDING"
     CONFIRMED = "CONFIRMED"
     CANCELLED = "CANCELLED"
+
+class UserModel(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    full_name = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(String(50), default="user", nullable=False)  # user, admin, superadmin
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+# Alias de compatibilidad según especificación del LAB 10
+User = UserModel
 
 class OrderModel(Base):
     __tablename__ = "orders"

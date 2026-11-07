@@ -1,9 +1,10 @@
 # Coworking Services - De Microservicios a Sistemas Distribuidos Inteligentes
 
-Proyecto integral que abarca la evolución arquitectónica completa a través de 3 talleres:
+Proyecto integral que abarca la evolución arquitectónica completa a través de 4 talleres:
 1. **Taller 1:** Microservicios con FastAPI, Docker Compose y Chaos Engineering.
 2. **Taller 2:** Migración Serverless y Event-Driven con AWS SAM, API Gateway, EventBridge, SQS y Lambdas.
 3. **Taller 3:** Bases de Datos en la Nube con PostgreSQL en AWS RDS (SQLAlchemy + Alembic) y MongoDB Atlas para Analytics.
+4. **Taller 4:** Backend Avanzado FastAPI - Autenticación JWT, Hashes bcrypt, Jerarquía RBAC y Protección de Rutas (LAB 10).
 
 ---
 
@@ -165,3 +166,46 @@ Para conectar los servicios a tus instancias reales en la nube:
    ```bash
    MONGODB_URI=mongodb+srv://<usuario>:<password>@<cluster.mongodb.net>/coworking_analytics?retryWrites=true&w=majority
    ```
+
+---
+
+## 🔐 Taller 4: Backend Avanzado FastAPI (LAB 10: Autenticación JWT + RBAC)
+
+Implementación integral de seguridad empresarial en `orders-service`:
+
+### 1. Componentes Clave (`orders-service/auth.py` y `database.py`)
+* **Cifrado de contraseñas:** Algoritmo `bcrypt` con `passlib.context.CryptContext`.
+* **Firma de Tokens:** JSON Web Tokens (JWT) usando `python-jose`, algoritmo `HS256`, clave secreta configurable y tiempo de expiración unificado a **60 minutos**.
+* **Jerarquía de Roles (RBAC):**
+  * `user` (Nivel 1): Usuario regular. Puede ver y crear únicamente sus propias órdenes y perfil.
+  * `admin` (Nivel 2): Administrador. Puede gestionar órdenes y acceder a `/admin` o `/admin/panel`.
+  * `superadmin` (Nivel 3): Administrador con permisos totales sobre el sistema.
+* **Manejo de Errores Estándar:**
+  * `401 Unauthorized`: Token inválido, expirado o credenciales incorrectas.
+  * `403 Forbidden`: Nivel de rol insuficiente para la ruta solicitada.
+  * `400 Bad Request`: Email duplicado en el registro.
+
+### 2. Endpoints de Autenticación
+| Método | Endpoint | Acceso | Descripción |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/auth/register` | Público | Registra usuario con password hasheada en PostgreSQL |
+| `POST` | `/auth/login` | Público (OAuth2) | Valida credenciales y emite Token JWT (`access_token`) |
+| `GET` | `/users/me` | Autenticado | Retorna el perfil del usuario autenticado vía `Bearer Token` |
+| `GET` | `/admin` | `admin` / `superadmin` | Ruta protegida RBAC (Retorna 403 para rol `user`) |
+| `GET` | `/admin/panel` | `admin` / `superadmin` | Panel de control administrativo detallado |
+| `GET` | `/orders` | Autenticado | Filtro por usuario (usuarios ven solo las suyas; admin ve todas) |
+| `POST` | `/orders` | Autenticado | Crea orden vinculada automáticamente al email del JWT |
+
+### 3. Suite Automatizada de Pruebas
+Para ejecutar las pruebas completas del Taller 4 en cualquier momento:
+```bash
+python test_taller4_auth.py
+```
+Valida de extremo a extremo:
+1. Creación de usuarios con roles jerárquicos.
+2. Login y obtención del JWT (60 minutos de expiración UTC).
+3. Rechazo de credenciales incorrectas (401).
+4. Consulta del perfil autenticado (`/users/me`).
+5. Restricción 403 Forbidden a usuarios normales en `/admin` y `/admin/panel`.
+6. Autorización 200 OK a usuarios administradores.
+7. Rechazo de tokens manipulados/falsos (401).
